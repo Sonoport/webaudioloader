@@ -1,0 +1,43 @@
+{
+  "name": "webaudioloader",
+  "version": "1.0.0",
+  "description": "Caching Loader (with optional decode) audio files to be used with WebAudio",
+  "main": "index.js",
+  "scripts": {
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/notthetup/webaudioloader.git"
+  },
+  "keywords": [
+    "webaudio",
+    "loader",
+    "decode",
+    "xhr",
+    "mp3",
+    "wav",
+    "ogg"
+  ],
+  "author": "Chinmay Pendharkar",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/notthetup/webaudioloader/issues"
+  },
+  "homepage": "https://github.com/notthetup/webaudioloader",
+  "devDependencies": {
+    "browserify": "^7.0.0",
+    "browserify-tape-spec": "^1.1.2",
+    "gulp": "^3.8.10",
+    "gulp-header": "^1.2.2",
+    "gulp-jsbeautify": "^0.1.1",
+    "gulp-jshint": "^1.9.0",
+    "gulp-rename": "^1.2.0",
+    "gulp-uglify": "^1.0.2",
+    "gulp-webserver": "^0.8.8",
+    "jshint-stylish": "^1.0.0",
+    "tap-browser-color": "^0.1.2",
+    "tape": "^3.0.3",
+    "vinyl-transform": "^1.0.0"
+  }
+}
