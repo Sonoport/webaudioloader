@@ -2,6 +2,10 @@
 
 function WebAudioLoader (options){
 
+	if ( !( this instanceof WebAudioLoader ) ) {
+		throw new TypeError( "WebAudioLoader constructor cannot be called as a function." );
+	}
+
 	window.AudioContext = window.AudioContext || window.webkitAudioContext;
 
 	if (window.webAudioLoader){
@@ -12,6 +16,8 @@ function WebAudioLoader (options){
 	this.maxCacheSize = 1000;
 	this.onload = null;
 	this.onprogress = null;
+
+	options = options || {};
 
 	this.context = options.audioContext || new AudioContext();
 
@@ -108,67 +114,59 @@ WebAudioLoader.prototype.load = function (source, options){
 	var thisLoadCache = true;
 	var thisLoadOnload = options.onload || null;
 	var thisLoadOnprogress = options.onload || null;
-		// var startPoint = options.startPoint || 0;
-		// var endPoint = options.endPoint || 0;
+	// var startPoint = options.startPoint || 0;
+	// var endPoint = options.endPoint || 0;
 
-		if (options.cache !== null || options.cache !== undefined){
-			thisLoadCache = options.cache;
+
+	if (options.cache !== null || options.cache !== undefined){
+		thisLoadCache = options.cache;
+	}
+
+	if (options.decode !== null || options.decode !== undefined){
+		decode = options.decode;
+	}
+
+	var onLoadProxy = function (err,arraybuffer){
+		if(typeof thisLoadOnload === 'function'){
+			thisLoadOnload(err,arraybuffer);
 		}
-
-		if (options.decode !== null || options.decode !== undefined){
-			decode = options.decode;
+		if (typeof this.onload === 'function'){
+			this.onload(err,arraybuffer);
 		}
+	}.bind(this);
 
-		var onLoadProxy = function (err,arraybuffer){
-			if(typeof thisLoadOnload === 'function'){
-				thisLoadOnload(err,arraybuffer);
+	if (this.cache && thisLoadCache){
+		var cacheSearch = this.cachedAudio.filter(function(thisCacheItem){
+			if (thisCacheItem.source === source){
+				return true;
 			}
-			if (typeof this.onload === 'function'){
-				this.onload(err,arraybuffer);
-			}
-		}.bind(this);
+		});
 
-		if (this.cache && thisLoadCache){
-			var cacheSearch = this.cachedAudio.filter(function(thisCacheItem){
-				if (thisCacheItem.source === source){
-					return true;
+		if (cacheSearch.length > 0){
+			console.log("Cache Hit");
+			onLoadProxy(null, cacheSearch[0].buffer);
+		}
+	}
+
+	this._loadURLOrFile(source, thisLoadOnprogress, function (err, arrayBuffer){
+		if(err || !decode){
+			onLoadProxy(err,arrayBuffer);
+		}else{
+			this.audioContext.decodeAudioData(arrayBuffer, function(audioBuffer){
+				if (thisLoadCache && this.cache){
+					this._addToCache(source,audioBuffer);
 				}
-			});
-
-			if (cacheSearch.length > 0){
-				console.log("Cache Hit");
-				onLoadProxy(null, cacheSearch[0].buffer);
-			}
-		}
-
-		this._loadURLOrFile(source, thisLoadOnprogress, function (err, arrayBuffer){
-			if(err || !decode){
 				onLoadProxy(err,arrayBuffer);
-			}else{
-				this.audioContext.decodeAudioData(arrayBuffer, function(audioBuffer){
-					if (thisLoadCache && this.cache){
-						this._addToCache(source,audioBuffer);
-					}
-					onLoadProxy(err,arrayBuffer);
-				}.bind(this), function(){
-					onLoadProxy(new Error("Decoding Error"),null);
-				}.bind(this));
-			}
-		}.bind(this));
-	};
+			}.bind(this), function(){
+				onLoadProxy(new Error("Decoding Error"),null);
+			}.bind(this));
+		}
+	}.bind(this));
+};
 
-	WebAudioLoader.prototype.flushCache = function (){
-		this._cachedAudio = [];
-		this._cachedSize = 0;
-	};
+WebAudioLoader.prototype.flushCache = function (){
+	this._cachedAudio = [];
+	this._cachedSize = 0;
+};
 
-	module.exports = WebAudioLoader;
-
-
-// var wal = new WebAudioLoader({cache : false, maxCacheSize : 1000, onload: function(){}, onprogress: function(){}, context : audioContext })
-// wal.onload = function(){};
-// wal.cache = false;
-// wal.onprogress = function(){};
-// wal.load('http://www.example.com/audio.mp3');
-// wal.load([object File]);
-// wal.load('http://www.example.com/audio.mp3', {decode: false, startPoint : 1, endPoint : 3, cache : false , onload: function(){}, onprogress: function(){}});
+module.exports = WebAudioLoader;

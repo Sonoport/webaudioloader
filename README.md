@@ -1,4 +1,4 @@
-webaudioloader
+WebAudioLoader
 ==============
 
 Caching Loader and Decoder for audio files to be used with Web Audio.

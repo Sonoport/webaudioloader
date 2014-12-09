@@ -1,4 +1,178 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+"use strict";
+
+function WebAudioLoader (options){
+
+	if ( !( this instanceof WebAudioLoader ) ) {
+		throw new TypeError( "WebAudioLoader constructor cannot be called as a function." );
+	}
+
+	window.AudioContext = window.AudioContext || window.webkitAudioContext;
+
+	if (window.webAudioLoader){
+		return window.webAudioLoader;
+	}
+
+	this.cache = true;
+	this.maxCacheSize = 1000;
+	this.onload = null;
+	this.onprogress = null;
+
+	options = options || {};
+
+	this.context = options.audioContext || new AudioContext();
+
+	for (var opt in options){
+		if (this.hasOwnProperty(opt) && options[opt] !== undefined){
+			this[opt] = options[opt];
+		}
+	}
+
+	this._cachedAudio = [];
+	this._cachedSize = 0;
+
+	window.webAudioLoader = this;
+
+	this._cacheFlush = function(sizeToClear, sortAlgorithm){
+		if (typeof sortAlgorithm !== 'function'){
+			sortAlgorithm = function (a,b){
+				return a.timestamp - b.timestamp;
+			};
+		}
+		this._cachedAudio.sort(sortAlgorithm);
+
+		var freedBuffer = 0;
+		while (freedBuffer < sizeToClear){
+			var removedBuffer = this._cachedAudio.pop();
+			freedBuffer = freedBuffer + this._sizeOfBufferInKB(removedBuffer);
+		}
+	};
+
+	this._addToCache = function(source, audioBuffer){
+		var sizeOfBuffer = this._sizeOfBufferInKB(audioBuffer);
+		if (this._cachedSize + sizeOfBuffer >= this.maxCacheSize){
+			this._cacheFlushOldest(sizeOfBuffer);
+		}else{
+			this._cachedSize = this._cachedSize + sizeOfBuffer;
+			this._cachedAudio.push({
+				source : source,
+				buffer : audioBuffer,
+				timestamp : this.audioContext.currentTime
+			});
+		}
+	};
+
+	this._sizeOfBufferInKB = function(audioBuffer){
+		return (audioBuffer.length*audioBuffer.numberOfChannels*4)/1000;
+	};
+
+	this._loadURLOrFile = function (URL, onprogress, onload){
+		var urlType = Object.prototype.toString.call( URL );
+		var request = null;
+		if (urlType === '[object String]'){
+			request = new XMLHttpRequest();
+			request.open('GET', URL, true);
+			request.responseType = 'arraybuffer';
+		}
+		else if (urlType === '[object File]' || urlType === '[object Blob]' ){
+			request = new FileReader();
+		}else{
+			return;
+		}
+
+		request.onload = function () {
+			if (typeof onload === 'function'){
+				onload(null, request.response);
+			}
+		};
+		request.onerror = function(){
+			if (typeof onload === 'function'){
+				onload(new Error("Loading Error"), null);
+			}
+		};
+		request.onprogress = function(event){
+			if (typeof onprogress === 'function'){
+				onprogress(event);
+			}
+
+			if (typeof this.onprogress === 'function'){
+				this.onprogress(event);
+			}
+		};
+
+		if (urlType === '[object String]'){
+			request.send();
+		}else if (urlType === '[object File]' || urlType === '[object Blob]' ){
+			request.readAsArrayBuffer( URL );
+		}
+
+	};
+}
+
+WebAudioLoader.prototype.load = function (source, options){
+
+	var decode =  true;
+	var thisLoadCache = true;
+	var thisLoadOnload = options.onload || null;
+	var thisLoadOnprogress = options.onload || null;
+	// var startPoint = options.startPoint || 0;
+	// var endPoint = options.endPoint || 0;
+
+
+	if (options.cache !== null || options.cache !== undefined){
+		thisLoadCache = options.cache;
+	}
+
+	if (options.decode !== null || options.decode !== undefined){
+		decode = options.decode;
+	}
+
+	var onLoadProxy = function (err,arraybuffer){
+		if(typeof thisLoadOnload === 'function'){
+			thisLoadOnload(err,arraybuffer);
+		}
+		if (typeof this.onload === 'function'){
+			this.onload(err,arraybuffer);
+		}
+	}.bind(this);
+
+	if (this.cache && thisLoadCache){
+		var cacheSearch = this.cachedAudio.filter(function(thisCacheItem){
+			if (thisCacheItem.source === source){
+				return true;
+			}
+		});
+
+		if (cacheSearch.length > 0){
+			console.log("Cache Hit");
+			onLoadProxy(null, cacheSearch[0].buffer);
+		}
+	}
+
+	this._loadURLOrFile(source, thisLoadOnprogress, function (err, arrayBuffer){
+		if(err || !decode){
+			onLoadProxy(err,arrayBuffer);
+		}else{
+			this.audioContext.decodeAudioData(arrayBuffer, function(audioBuffer){
+				if (thisLoadCache && this.cache){
+					this._addToCache(source,audioBuffer);
+				}
+				onLoadProxy(err,arrayBuffer);
+			}.bind(this), function(){
+				onLoadProxy(new Error("Decoding Error"),null);
+			}.bind(this));
+		}
+	}.bind(this));
+};
+
+WebAudioLoader.prototype.flushCache = function (){
+	this._cachedAudio = [];
+	this._cachedSize = 0;
+};
+
+module.exports = WebAudioLoader;
+
+},{}],2:[function(require,module,exports){
 (function (Buffer){
 var through = require('through2')
 var insertCss = require('insert-css')
@@ -83,7 +257,7 @@ module.exports = function(output_element) {
 }
 
 }).call(this,require("buffer").Buffer)
-},{"buffer":15,"insert-css":2,"through2":13}],2:[function(require,module,exports){
+},{"buffer":16,"insert-css":3,"through2":14}],3:[function(require,module,exports){
 var inserted = {};
 
 module.exports = function (css, options) {
@@ -107,7 +281,7 @@ module.exports = function (css, options) {
     }
 };
 
-},{}],3:[function(require,module,exports){
+},{}],4:[function(require,module,exports){
 (function (process){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -200,7 +374,7 @@ function forEach (xs, f) {
 }
 
 }).call(this,require('_process'))
-},{"./_stream_readable":4,"./_stream_writable":6,"_process":23,"core-util-is":7,"inherits":8}],4:[function(require,module,exports){
+},{"./_stream_readable":5,"./_stream_writable":7,"_process":24,"core-util-is":8,"inherits":9}],5:[function(require,module,exports){
 (function (process){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -1186,7 +1360,7 @@ function indexOf (xs, x) {
 }
 
 }).call(this,require('_process'))
-},{"_process":23,"buffer":15,"core-util-is":7,"events":19,"inherits":8,"isarray":9,"stream":35,"string_decoder/":10}],5:[function(require,module,exports){
+},{"_process":24,"buffer":16,"core-util-is":8,"events":20,"inherits":9,"isarray":10,"stream":36,"string_decoder/":11}],6:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -1398,7 +1572,7 @@ function done(stream, er) {
   return stream.push(null);
 }
 
-},{"./_stream_duplex":3,"core-util-is":7,"inherits":8}],6:[function(require,module,exports){
+},{"./_stream_duplex":4,"core-util-is":8,"inherits":9}],7:[function(require,module,exports){
 (function (process){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -1788,7 +1962,7 @@ function endWritable(stream, state, cb) {
 }
 
 }).call(this,require('_process'))
-},{"./_stream_duplex":3,"_process":23,"buffer":15,"core-util-is":7,"inherits":8,"stream":35}],7:[function(require,module,exports){
+},{"./_stream_duplex":4,"_process":24,"buffer":16,"core-util-is":8,"inherits":9,"stream":36}],8:[function(require,module,exports){
 (function (Buffer){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -1898,7 +2072,7 @@ function objectToString(o) {
   return Object.prototype.toString.call(o);
 }
 }).call(this,require("buffer").Buffer)
-},{"buffer":15}],8:[function(require,module,exports){
+},{"buffer":16}],9:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -1923,12 +2097,12 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],9:[function(require,module,exports){
+},{}],10:[function(require,module,exports){
 module.exports = Array.isArray || function (arr) {
   return Object.prototype.toString.call(arr) == '[object Array]';
 };
 
-},{}],10:[function(require,module,exports){
+},{}],11:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -2151,10 +2325,10 @@ function base64DetectIncompleteChar(buffer) {
   this.charLength = this.charReceived ? 3 : 0;
 }
 
-},{"buffer":15}],11:[function(require,module,exports){
+},{"buffer":16}],12:[function(require,module,exports){
 module.exports = require("./lib/_stream_transform.js")
 
-},{"./lib/_stream_transform.js":5}],12:[function(require,module,exports){
+},{"./lib/_stream_transform.js":6}],13:[function(require,module,exports){
 module.exports = extend
 
 function extend() {
@@ -2173,7 +2347,7 @@ function extend() {
     return target
 }
 
-},{}],13:[function(require,module,exports){
+},{}],14:[function(require,module,exports){
 (function (process){
 var Transform = require('readable-stream/transform')
   , inherits  = require('util').inherits
@@ -2273,9 +2447,9 @@ module.exports.obj = through2(function (options, transform, flush) {
 })
 
 }).call(this,require('_process'))
-},{"_process":23,"readable-stream/transform":11,"util":38,"xtend":12}],14:[function(require,module,exports){
+},{"_process":24,"readable-stream/transform":12,"util":39,"xtend":13}],15:[function(require,module,exports){
 
-},{}],15:[function(require,module,exports){
+},{}],16:[function(require,module,exports){
 /*!
  * The buffer module from node.js, for the browser.
  *
@@ -3329,7 +3503,7 @@ function decodeUtf8Char (str) {
   }
 }
 
-},{"base64-js":16,"ieee754":17,"is-array":18}],16:[function(require,module,exports){
+},{"base64-js":17,"ieee754":18,"is-array":19}],17:[function(require,module,exports){
 var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 ;(function (exports) {
@@ -3451,7 +3625,7 @@ var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 	exports.fromByteArray = uint8ToBase64
 }(typeof exports === 'undefined' ? (this.base64js = {}) : exports))
 
-},{}],17:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 exports.read = function(buffer, offset, isLE, mLen, nBytes) {
   var e, m,
       eLen = nBytes * 8 - mLen - 1,
@@ -3537,7 +3711,7 @@ exports.write = function(buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128;
 };
 
-},{}],18:[function(require,module,exports){
+},{}],19:[function(require,module,exports){
 
 /**
  * isArray
@@ -3572,7 +3746,7 @@ module.exports = isArray || function (val) {
   return !! val && '[object Array]' == str.call(val);
 };
 
-},{}],19:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -3875,11 +4049,11 @@ function isUndefined(arg) {
   return arg === void 0;
 }
 
-},{}],20:[function(require,module,exports){
-module.exports=require(8)
-},{"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/node_modules/inherits/inherits_browser.js":8}],21:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 module.exports=require(9)
-},{"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/node_modules/isarray/index.js":9}],22:[function(require,module,exports){
+},{"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/node_modules/inherits/inherits_browser.js":9}],22:[function(require,module,exports){
+module.exports=require(10)
+},{"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/node_modules/isarray/index.js":10}],23:[function(require,module,exports){
 (function (process){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -4107,7 +4281,7 @@ var substr = 'ab'.substr(-1) === 'b'
 ;
 
 }).call(this,require('_process'))
-},{"_process":23}],23:[function(require,module,exports){
+},{"_process":24}],24:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -4195,12 +4369,12 @@ process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
 };
 
-},{}],24:[function(require,module,exports){
+},{}],25:[function(require,module,exports){
 module.exports = require("./lib/_stream_duplex.js")
 
-},{"./lib/_stream_duplex.js":25}],25:[function(require,module,exports){
-module.exports=require(3)
-},{"./_stream_readable":27,"./_stream_writable":29,"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/lib/_stream_duplex.js":3,"_process":23,"core-util-is":30,"inherits":20}],26:[function(require,module,exports){
+},{"./lib/_stream_duplex.js":26}],26:[function(require,module,exports){
+module.exports=require(4)
+},{"./_stream_readable":28,"./_stream_writable":30,"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/lib/_stream_duplex.js":4,"_process":24,"core-util-is":31,"inherits":21}],27:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -4248,18 +4422,18 @@ PassThrough.prototype._transform = function(chunk, encoding, cb) {
   cb(null, chunk);
 };
 
-},{"./_stream_transform":28,"core-util-is":30,"inherits":20}],27:[function(require,module,exports){
-module.exports=require(4)
-},{"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/lib/_stream_readable.js":4,"_process":23,"buffer":15,"core-util-is":30,"events":19,"inherits":20,"isarray":21,"stream":35,"string_decoder/":36}],28:[function(require,module,exports){
+},{"./_stream_transform":29,"core-util-is":31,"inherits":21}],28:[function(require,module,exports){
 module.exports=require(5)
-},{"./_stream_duplex":25,"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/lib/_stream_transform.js":5,"core-util-is":30,"inherits":20}],29:[function(require,module,exports){
+},{"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/lib/_stream_readable.js":5,"_process":24,"buffer":16,"core-util-is":31,"events":20,"inherits":21,"isarray":22,"stream":36,"string_decoder/":37}],29:[function(require,module,exports){
 module.exports=require(6)
-},{"./_stream_duplex":25,"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/lib/_stream_writable.js":6,"_process":23,"buffer":15,"core-util-is":30,"inherits":20,"stream":35}],30:[function(require,module,exports){
+},{"./_stream_duplex":26,"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/lib/_stream_transform.js":6,"core-util-is":31,"inherits":21}],30:[function(require,module,exports){
 module.exports=require(7)
-},{"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/node_modules/core-util-is/lib/util.js":7,"buffer":15}],31:[function(require,module,exports){
+},{"./_stream_duplex":26,"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/lib/_stream_writable.js":7,"_process":24,"buffer":16,"core-util-is":31,"inherits":21,"stream":36}],31:[function(require,module,exports){
+module.exports=require(8)
+},{"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/node_modules/core-util-is/lib/util.js":8,"buffer":16}],32:[function(require,module,exports){
 module.exports = require("./lib/_stream_passthrough.js")
 
-},{"./lib/_stream_passthrough.js":26}],32:[function(require,module,exports){
+},{"./lib/_stream_passthrough.js":27}],33:[function(require,module,exports){
 var Stream = require('stream'); // hack to fix a circular dependency issue when used with browserify
 exports = module.exports = require('./lib/_stream_readable.js');
 exports.Stream = Stream;
@@ -4269,12 +4443,12 @@ exports.Duplex = require('./lib/_stream_duplex.js');
 exports.Transform = require('./lib/_stream_transform.js');
 exports.PassThrough = require('./lib/_stream_passthrough.js');
 
-},{"./lib/_stream_duplex.js":25,"./lib/_stream_passthrough.js":26,"./lib/_stream_readable.js":27,"./lib/_stream_transform.js":28,"./lib/_stream_writable.js":29,"stream":35}],33:[function(require,module,exports){
-module.exports=require(11)
-},{"./lib/_stream_transform.js":28,"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/transform.js":11}],34:[function(require,module,exports){
+},{"./lib/_stream_duplex.js":26,"./lib/_stream_passthrough.js":27,"./lib/_stream_readable.js":28,"./lib/_stream_transform.js":29,"./lib/_stream_writable.js":30,"stream":36}],34:[function(require,module,exports){
+module.exports=require(12)
+},{"./lib/_stream_transform.js":29,"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/transform.js":12}],35:[function(require,module,exports){
 module.exports = require("./lib/_stream_writable.js")
 
-},{"./lib/_stream_writable.js":29}],35:[function(require,module,exports){
+},{"./lib/_stream_writable.js":30}],36:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -4403,16 +4577,16 @@ Stream.prototype.pipe = function(dest, options) {
   return dest;
 };
 
-},{"events":19,"inherits":20,"readable-stream/duplex.js":24,"readable-stream/passthrough.js":31,"readable-stream/readable.js":32,"readable-stream/transform.js":33,"readable-stream/writable.js":34}],36:[function(require,module,exports){
-module.exports=require(10)
-},{"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/node_modules/string_decoder/index.js":10,"buffer":15}],37:[function(require,module,exports){
+},{"events":20,"inherits":21,"readable-stream/duplex.js":25,"readable-stream/passthrough.js":32,"readable-stream/readable.js":33,"readable-stream/transform.js":34,"readable-stream/writable.js":35}],37:[function(require,module,exports){
+module.exports=require(11)
+},{"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/node_modules/string_decoder/index.js":11,"buffer":16}],38:[function(require,module,exports){
 module.exports = function isBuffer(arg) {
   return arg && typeof arg === 'object'
     && typeof arg.copy === 'function'
     && typeof arg.fill === 'function'
     && typeof arg.readUInt8 === 'function';
 }
-},{}],38:[function(require,module,exports){
+},{}],39:[function(require,module,exports){
 (function (process,global){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -5002,7 +5176,7 @@ function hasOwnProperty(obj, prop) {
 }
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./support/isBuffer":37,"_process":23,"inherits":20}],39:[function(require,module,exports){
+},{"./support/isBuffer":38,"_process":24,"inherits":21}],40:[function(require,module,exports){
 (function (process){
 var defined = require('defined');
 var createDefaultStream = require('./lib/default_stream');
@@ -5154,7 +5328,7 @@ function createHarness (conf_) {
 }
 
 }).call(this,require('_process'))
-},{"./lib/default_stream":40,"./lib/results":41,"./lib/test":42,"_process":23,"defined":46,"through":50}],40:[function(require,module,exports){
+},{"./lib/default_stream":41,"./lib/results":42,"./lib/test":43,"_process":24,"defined":47,"through":51}],41:[function(require,module,exports){
 (function (process){
 var through = require('through');
 var fs = require('fs');
@@ -5189,7 +5363,7 @@ module.exports = function () {
 };
 
 }).call(this,require('_process'))
-},{"_process":23,"fs":14,"through":50}],41:[function(require,module,exports){
+},{"_process":24,"fs":15,"through":51}],42:[function(require,module,exports){
 (function (process){
 var EventEmitter = require('events').EventEmitter;
 var inherits = require('inherits');
@@ -5382,7 +5556,7 @@ function has (obj, prop) {
 }
 
 }).call(this,require('_process'))
-},{"_process":23,"events":19,"inherits":47,"object-inspect":48,"resumer":49,"through":50}],42:[function(require,module,exports){
+},{"_process":24,"events":20,"inherits":48,"object-inspect":49,"resumer":50,"through":51}],43:[function(require,module,exports){
 (function (process,__dirname){
 var Stream = require('stream');
 var deepEqual = require('deep-equal');
@@ -5848,7 +6022,7 @@ Test.skip = function (name_, _opts, _cb) {
 // vim: set softtabstop=4 shiftwidth=4:
 
 }).call(this,require('_process'),"/node_modules/tape/lib")
-},{"_process":23,"deep-equal":43,"defined":46,"events":19,"inherits":47,"path":22,"stream":35}],43:[function(require,module,exports){
+},{"_process":24,"deep-equal":44,"defined":47,"events":20,"inherits":48,"path":23,"stream":36}],44:[function(require,module,exports){
 var pSlice = Array.prototype.slice;
 var objectKeys = require('./lib/keys.js');
 var isArguments = require('./lib/is_arguments.js');
@@ -5944,7 +6118,7 @@ function objEquiv(a, b, opts) {
   return true;
 }
 
-},{"./lib/is_arguments.js":44,"./lib/keys.js":45}],44:[function(require,module,exports){
+},{"./lib/is_arguments.js":45,"./lib/keys.js":46}],45:[function(require,module,exports){
 var supportsArgumentsClass = (function(){
   return Object.prototype.toString.call(arguments)
 })() == '[object Arguments]';
@@ -5966,7 +6140,7 @@ function unsupported(object){
     false;
 };
 
-},{}],45:[function(require,module,exports){
+},{}],46:[function(require,module,exports){
 exports = module.exports = typeof Object.keys === 'function'
   ? Object.keys : shim;
 
@@ -5977,16 +6151,16 @@ function shim (obj) {
   return keys;
 }
 
-},{}],46:[function(require,module,exports){
+},{}],47:[function(require,module,exports){
 module.exports = function () {
     for (var i = 0; i < arguments.length; i++) {
         if (arguments[i] !== undefined) return arguments[i];
     }
 };
 
-},{}],47:[function(require,module,exports){
-module.exports=require(8)
-},{"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/node_modules/inherits/inherits_browser.js":8}],48:[function(require,module,exports){
+},{}],48:[function(require,module,exports){
+module.exports=require(9)
+},{"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify-tape-spec/node_modules/through2/node_modules/readable-stream/node_modules/inherits/inherits_browser.js":9}],49:[function(require,module,exports){
 module.exports = function inspect_ (obj, opts, depth, seen) {
     if (!opts) opts = {};
     
@@ -6115,7 +6289,7 @@ function inspectString (str) {
     }
 }
 
-},{}],49:[function(require,module,exports){
+},{}],50:[function(require,module,exports){
 (function (process){
 var through = require('through');
 var nextTick = typeof setImmediate !== 'undefined'
@@ -6148,7 +6322,7 @@ module.exports = function (write, end) {
 };
 
 }).call(this,require('_process'))
-},{"_process":23,"through":50}],50:[function(require,module,exports){
+},{"_process":24,"through":51}],51:[function(require,module,exports){
 (function (process){
 var Stream = require('stream')
 
@@ -6260,18 +6434,20 @@ function through (write, end, opts) {
 
 
 }).call(this,require('_process'))
-},{"_process":23,"stream":35}],51:[function(require,module,exports){
+},{"_process":24,"stream":36}],52:[function(require,module,exports){
 var test = require('tape');
-var report = require('browserify-tape-spec')
+var report = require('browserify-tape-spec');
+var WebAudioLoader = require('../../');
 
-test('fibwibblers and xyrscawlers', function (t) {
+
+test('WebAudioLoader Constructor', function (t) {
     t.plan(2);
 
-    t.equal(1,1, "yay");
-    t.equal('a','a', "yay");
-
+    t.doesNotThrow(function(){
+    	var wal = new WebAudioLoader();
+    },{}, "Does it throw?");
 })
 
 test.createStream().pipe(report('out'))
 
-},{"browserify-tape-spec":1,"tape":39}]},{},[51]);
+},{"../../":1,"browserify-tape-spec":2,"tape":40}]},{},[52]);
