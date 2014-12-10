@@ -33,6 +33,8 @@ function WebAudioLoader (options){
 	window.webAudioLoader = this;
 
 	this._cacheFlush = function(sizeToClear, sortAlgorithm){
+		console.log('flushing:', sizeToClear, this._cachedSize);
+
 		if (typeof sortAlgorithm !== 'function'){
 			sortAlgorithm = function (a,b){
 				return a.timestamp - b.timestamp;
@@ -42,21 +44,30 @@ function WebAudioLoader (options){
 
 		var freedBuffer = 0;
 		while (freedBuffer < sizeToClear){
-			var removedBuffer = this._cachedAudio.pop();
-			freedBuffer = freedBuffer + this._sizeOfBufferInKB(removedBuffer);
+			var removedItem = this._cachedAudio.shift();
+			freedBuffer = freedBuffer + this._sizeOfBufferInKB(removedItem.buffer);
 		}
+
+		this._cachedSize = this._cachedSize - freedBuffer;
 	};
 
 	this._addToCache = function(source, audioBuffer){
 		var sizeOfBuffer = this._sizeOfBufferInKB(audioBuffer);
+
+		if (sizeOfBuffer > this.maxCacheSize){
+			return;
+		}
+
 		if (this._cachedSize + sizeOfBuffer >= this.maxCacheSize){
-			this._cacheFlushOldest(sizeOfBuffer);
-		}else{
+			this._cacheFlush(sizeOfBuffer - (this.maxCacheSize - this._cachedSize));
+		}
+
+		if (this._cachedSize + sizeOfBuffer < this.maxCacheSize){
 			this._cachedSize = this._cachedSize + sizeOfBuffer;
 			this._cachedAudio.push({
 				source : source,
 				buffer : audioBuffer,
-				timestamp : this.audioContext.currentTime
+				timestamp : this.context.currentTime
 			});
 		}
 	};
@@ -80,8 +91,14 @@ function WebAudioLoader (options){
 		}
 
 		request.onload = function () {
-			if (typeof onload === 'function'){
-				onload(null, request.response);
+			if (request.status === 200){
+				if (typeof onload === 'function'){
+					onload(null, request.response);
+				}
+			}else{
+				if (typeof onload === 'function'){
+					onload(new Error("Loading Error"), null);
+				}
 			}
 		};
 		request.onerror = function(){
@@ -97,7 +114,7 @@ function WebAudioLoader (options){
 			if (typeof this.onprogress === 'function'){
 				this.onprogress(event);
 			}
-		};
+		}.bind(this);
 
 		if (urlType === '[object String]'){
 			request.send();
@@ -113,16 +130,16 @@ WebAudioLoader.prototype.load = function (source, options){
 	var decode =  true;
 	var thisLoadCache = true;
 	var thisLoadOnload = options.onload || null;
-	var thisLoadOnprogress = options.onload || null;
+	var thisLoadOnprogress = options.onprogress || null;
 	// var startPoint = options.startPoint || 0;
 	// var endPoint = options.endPoint || 0;
 
 
-	if (options.cache !== null || options.cache !== undefined){
+	if (options.cache !== null && options.cache !== undefined){
 		thisLoadCache = options.cache;
 	}
 
-	if (options.decode !== null || options.decode !== undefined){
+	if (options.decode !== null && options.decode !== undefined){
 		decode = options.decode;
 	}
 
@@ -136,7 +153,7 @@ WebAudioLoader.prototype.load = function (source, options){
 	}.bind(this);
 
 	if (this.cache && thisLoadCache){
-		var cacheSearch = this.cachedAudio.filter(function(thisCacheItem){
+		var cacheSearch = this._cachedAudio.filter(function(thisCacheItem){
 			if (thisCacheItem.source === source){
 				return true;
 			}
@@ -145,6 +162,7 @@ WebAudioLoader.prototype.load = function (source, options){
 		if (cacheSearch.length > 0){
 			console.log("Cache Hit");
 			onLoadProxy(null, cacheSearch[0].buffer);
+			return;
 		}
 	}
 
@@ -152,11 +170,11 @@ WebAudioLoader.prototype.load = function (source, options){
 		if(err || !decode){
 			onLoadProxy(err,arrayBuffer);
 		}else{
-			this.audioContext.decodeAudioData(arrayBuffer, function(audioBuffer){
+			this.context.decodeAudioData(arrayBuffer, function(audioBuffer){
 				if (thisLoadCache && this.cache){
 					this._addToCache(source,audioBuffer);
 				}
-				onLoadProxy(err,arrayBuffer);
+				onLoadProxy(err,audioBuffer);
 			}.bind(this), function(){
 				onLoadProxy(new Error("Decoding Error"),null);
 			}.bind(this));

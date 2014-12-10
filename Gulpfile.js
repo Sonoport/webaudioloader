@@ -14,7 +14,8 @@ var transform = require('vinyl-transform');
 var paths = {
 	jssrc : './src/*.js',
   test : './test/',
-  dist : './dist'
+  dist : './dist',
+  testspecs : './test/spec/*.js'
 }
 
 var banner= '/*<%= pkg.name %> - v<%= pkg.version %> - ' +
@@ -48,7 +49,15 @@ gulp.task('standalone', ['browserify'], function () {
     .pipe(gulp.dest('./dist'));
 });
 
-gulp.task('browserify:test', function () {
+gulp.task('jshint:test', function(){
+
+    return gulp.src([paths.testspecs])
+    .pipe(jshint('.jshintrc'))
+    .pipe(jshint.reporter('jshint-stylish'))
+    .pipe(jshint.reporter('fail'));
+});
+
+gulp.task('browserify:test',['jshint:test'], function () {
 
   var browserified = transform(function(filename) {
     var b = browserify(filename);
@@ -61,7 +70,11 @@ gulp.task('browserify:test', function () {
     .pipe(gulp.dest('./test'));
 });
 
-gulp.task('test', ['jshint', 'browserify:test'], function(){
+gulp.task('watch:test', function(){
+    gulp.watch(paths.testspecs, ['browserify:test']);
+});
+
+gulp.task('test', ['jshint', 'browserify:test', 'watch:test'], function(){
     return gulp.src([paths.test, paths.dist])
     .pipe(webserver({
         port: 8080,
