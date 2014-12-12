@@ -34,7 +34,7 @@ wal.load('http://www.example.com/audio.mp3', {
 
 ## Why WebAudioLoader
 
-- Easy API (deals with loading and decoding audio for you) for XHR loading audio.
+- Easy API (deals with loading and decoding audio for you) for XHR loading of audio.
 - Uses [LRU Cache](https://www.npmjs.com/package/lru-cache) for caching decoded audio.
 - Uses node style callbacks (err, buffer) to return decoded buffers.
 - Registers a global single instance and returns a reference if one is found.
