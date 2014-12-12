@@ -8,7 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/notthetup/webaudioloader.git"
+    "url": "https://github.com/Sonoport/webaudioloader.git"
   },
   "keywords": [
     "webaudio",
@@ -22,9 +22,9 @@
   "author": "Chinmay Pendharkar",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/notthetup/webaudioloader/issues"
+    "url": "https://github.com/Sonoport/webaudioloader/issues"
   },
-  "homepage": "https://github.com/notthetup/webaudioloader",
+  "homepage": "https://github.com/Sonoport/webaudioloader",
   "devDependencies": {
     "browserify": "^7.0.0",
     "gulp": "^3.8.10",
