@@ -12,7 +12,7 @@ var browserify = require('browserify');
 var transform = require('vinyl-transform');
 
 var paths = {
-	jssrc : './src/*.js',
+	jssrc : './lib/*.js',
   test : './test/',
   dist : './dist',
   testspecs : './test/spec/*.js'
@@ -38,7 +38,7 @@ gulp.task('browserify', ['jshint'], function () {
   return gulp.src([paths.jssrc])
     .pipe(browserified)
     .pipe(header(banner, {pkg: pkg}))
-    .pipe(gulp.dest('./dist'));
+    .pipe(gulp.dest(paths.dist));
 });
 
 gulp.task('standalone', ['browserify'], function () {
@@ -46,7 +46,7 @@ gulp.task('standalone', ['browserify'], function () {
   return gulp.src(['dist/webaudioloader.js'])
     .pipe(uglify({mangle: false, preserveComments: 'all'}))
     .pipe(rename('webaudioloader.min.js'))
-    .pipe(gulp.dest('./dist'));
+    .pipe(gulp.dest(paths.dist));
 });
 
 gulp.task('jshint:test', function(){
@@ -64,17 +64,21 @@ gulp.task('browserify:test',['jshint:test'], function () {
     return b.bundle();
   });
 
-  return gulp.src(['./test/spec/*.js'])
+  return gulp.src([paths.testspecs])
     .pipe(browserified)
     .pipe(rename('test.js'))
-    .pipe(gulp.dest('./test'));
+    .pipe(gulp.dest(paths.test));
+});
+
+gulp.task('watch:src', function(){
+    gulp.watch(paths.jssrc, ['browserify']);
 });
 
 gulp.task('watch:test', function(){
     gulp.watch(paths.testspecs, ['browserify:test']);
 });
 
-gulp.task('test', ['jshint', 'browserify:test', 'watch:test'], function(){
+gulp.task('test', ['jshint', 'browserify:test', 'watch:test', 'watch:src'], function(){
     return gulp.src([paths.test, paths.dist])
     .pipe(webserver({
         port: 8080,

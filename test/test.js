@@ -9,74 +9,54 @@ function WebAudioLoader (options){
 
 	window.AudioContext = window.AudioContext || window.webkitAudioContext;
 
+	// Singleton using a global reference.
 	if (window.webAudioLoader){
 		return window.webAudioLoader;
 	}
 
+		// setup cache object
+	this._cachedAudio = null;
+
+	// Define default local properties
 	this.cache = true;
-	this.maxCacheSize = 1000;
 	this.onload = null;
 	this.onprogress = null;
+	Object.defineProperty(this,'maxCacheSize', {
+		enumerable: true,
+		configurable: false,
+		set : function (maxSize){
+			if (this._cachedAudio){
+				this._cachedAudio.max = maxSize;
+			}
+		},
+		get : function (){
+			return this._cachedAudio.max;
+		}
+	});
 
+	// Options parsing.
 	options = options || {};
-
-	this.context = options.audioContext || new AudioContext();
-
 	for (var opt in options){
 		if (this.hasOwnProperty(opt) && options[opt] !== undefined){
 			this[opt] = options[opt];
 		}
 	}
+	this.context = options.audioContext || new AudioContext();
 
-	this._cachedAudio = [];
-	this._cachedSize = 0;
+	// Setup Cache
+	var cacheOptions = {
+		max: options.maxCacheSize || 1000,
+		length: function(audioBuffer){
+			return (audioBuffer.length*audioBuffer.numberOfChannels*4)/1000;
+		}
+	};
+	this._cachedAudio = require('lru-cache')(cacheOptions);
 
+
+	// Resgiter as global
 	window.webAudioLoader = this;
 
-	this._cacheFlush = function(sizeToClear, sortAlgorithm){
-		console.log('flushing:', sizeToClear, this._cachedSize);
-
-		if (typeof sortAlgorithm !== 'function'){
-			sortAlgorithm = function (a,b){
-				return a.timestamp - b.timestamp;
-			};
-		}
-		this._cachedAudio.sort(sortAlgorithm);
-
-		var freedBuffer = 0;
-		while (freedBuffer < sizeToClear){
-			var removedItem = this._cachedAudio.shift();
-			freedBuffer = freedBuffer + this._sizeOfBufferInKB(removedItem.buffer);
-		}
-
-		this._cachedSize = this._cachedSize - freedBuffer;
-	};
-
-	this._addToCache = function(source, audioBuffer){
-		var sizeOfBuffer = this._sizeOfBufferInKB(audioBuffer);
-
-		if (sizeOfBuffer > this.maxCacheSize){
-			return;
-		}
-
-		if (this._cachedSize + sizeOfBuffer >= this.maxCacheSize){
-			this._cacheFlush(sizeOfBuffer - (this.maxCacheSize - this._cachedSize));
-		}
-
-		if (this._cachedSize + sizeOfBuffer < this.maxCacheSize){
-			this._cachedSize = this._cachedSize + sizeOfBuffer;
-			this._cachedAudio.push({
-				source : source,
-				buffer : audioBuffer,
-				timestamp : this.context.currentTime
-			});
-		}
-	};
-
-	this._sizeOfBufferInKB = function(audioBuffer){
-		return (audioBuffer.length*audioBuffer.numberOfChannels*4)/1000;
-	};
-
+	// Helper functions
 	this._loadURLOrFile = function (URL, onprogress, onload){
 		var urlType = Object.prototype.toString.call( URL );
 		var request = null;
@@ -154,15 +134,9 @@ WebAudioLoader.prototype.load = function (source, options){
 	}.bind(this);
 
 	if (this.cache && thisLoadCache){
-		var cacheSearch = this._cachedAudio.filter(function(thisCacheItem){
-			if (thisCacheItem.source === source){
-				return true;
-			}
-		});
-
-		if (cacheSearch.length > 0){
-			console.log("Cache Hit");
-			onLoadProxy(null, cacheSearch[0].buffer);
+		var testCache = this._cachedAudio.get(source);
+		if (testCache){
+			onLoadProxy(null, testCache);
 			return;
 		}
 	}
@@ -173,7 +147,7 @@ WebAudioLoader.prototype.load = function (source, options){
 		}else{
 			this.context.decodeAudioData(arrayBuffer, function(audioBuffer){
 				if (thisLoadCache && this.cache){
-					this._addToCache(source,audioBuffer);
+					this._cachedAudio.set(source,audioBuffer);
 				}
 				onLoadProxy(err,audioBuffer);
 			}.bind(this), function(){
@@ -184,13 +158,12 @@ WebAudioLoader.prototype.load = function (source, options){
 };
 
 WebAudioLoader.prototype.flushCache = function (){
-	this._cachedAudio = [];
-	this._cachedSize = 0;
+	this._cache.reset();
 };
 
 module.exports = WebAudioLoader;
 
-},{}],2:[function(require,module,exports){
+},{"lru-cache":25}],2:[function(require,module,exports){
 
 },{}],3:[function(require,module,exports){
 /*!
@@ -4352,6 +4325,260 @@ function base64DetectIncompleteChar(buffer) {
 }
 
 },{"buffer":3}],25:[function(require,module,exports){
+;(function () { // closure for web browsers
+
+if (typeof module === 'object' && module.exports) {
+  module.exports = LRUCache
+} else {
+  // just set the global for non-node platforms.
+  this.LRUCache = LRUCache
+}
+
+function hOP (obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key)
+}
+
+function naiveLength () { return 1 }
+
+function LRUCache (options) {
+  if (!(this instanceof LRUCache))
+    return new LRUCache(options)
+
+  if (typeof options === 'number')
+    options = { max: options }
+
+  if (!options)
+    options = {}
+
+  this._max = options.max
+  // Kind of weird to have a default max of Infinity, but oh well.
+  if (!this._max || !(typeof this._max === "number") || this._max <= 0 )
+    this._max = Infinity
+
+  this._lengthCalculator = options.length || naiveLength
+  if (typeof this._lengthCalculator !== "function")
+    this._lengthCalculator = naiveLength
+
+  this._allowStale = options.stale || false
+  this._maxAge = options.maxAge || null
+  this._dispose = options.dispose
+  this.reset()
+}
+
+// resize the cache when the max changes.
+Object.defineProperty(LRUCache.prototype, "max",
+  { set : function (mL) {
+      if (!mL || !(typeof mL === "number") || mL <= 0 ) mL = Infinity
+      this._max = mL
+      if (this._length > this._max) trim(this)
+    }
+  , get : function () { return this._max }
+  , enumerable : true
+  })
+
+// resize the cache when the lengthCalculator changes.
+Object.defineProperty(LRUCache.prototype, "lengthCalculator",
+  { set : function (lC) {
+      if (typeof lC !== "function") {
+        this._lengthCalculator = naiveLength
+        this._length = this._itemCount
+        for (var key in this._cache) {
+          this._cache[key].length = 1
+        }
+      } else {
+        this._lengthCalculator = lC
+        this._length = 0
+        for (var key in this._cache) {
+          this._cache[key].length = this._lengthCalculator(this._cache[key].value)
+          this._length += this._cache[key].length
+        }
+      }
+
+      if (this._length > this._max) trim(this)
+    }
+  , get : function () { return this._lengthCalculator }
+  , enumerable : true
+  })
+
+Object.defineProperty(LRUCache.prototype, "length",
+  { get : function () { return this._length }
+  , enumerable : true
+  })
+
+
+Object.defineProperty(LRUCache.prototype, "itemCount",
+  { get : function () { return this._itemCount }
+  , enumerable : true
+  })
+
+LRUCache.prototype.forEach = function (fn, thisp) {
+  thisp = thisp || this
+  var i = 0;
+  for (var k = this._mru - 1; k >= 0 && i < this._itemCount; k--) if (this._lruList[k]) {
+    i++
+    var hit = this._lruList[k]
+    if (this._maxAge && (Date.now() - hit.now > this._maxAge)) {
+      del(this, hit)
+      if (!this._allowStale) hit = undefined
+    }
+    if (hit) {
+      fn.call(thisp, hit.value, hit.key, this)
+    }
+  }
+}
+
+LRUCache.prototype.keys = function () {
+  var keys = new Array(this._itemCount)
+  var i = 0
+  for (var k = this._mru - 1; k >= 0 && i < this._itemCount; k--) if (this._lruList[k]) {
+    var hit = this._lruList[k]
+    keys[i++] = hit.key
+  }
+  return keys
+}
+
+LRUCache.prototype.values = function () {
+  var values = new Array(this._itemCount)
+  var i = 0
+  for (var k = this._mru - 1; k >= 0 && i < this._itemCount; k--) if (this._lruList[k]) {
+    var hit = this._lruList[k]
+    values[i++] = hit.value
+  }
+  return values
+}
+
+LRUCache.prototype.reset = function () {
+  if (this._dispose && this._cache) {
+    for (var k in this._cache) {
+      this._dispose(k, this._cache[k].value)
+    }
+  }
+
+  this._cache = Object.create(null) // hash of items by key
+  this._lruList = Object.create(null) // list of items in order of use recency
+  this._mru = 0 // most recently used
+  this._lru = 0 // least recently used
+  this._length = 0 // number of items in the list
+  this._itemCount = 0
+}
+
+// Provided for debugging/dev purposes only. No promises whatsoever that
+// this API stays stable.
+LRUCache.prototype.dump = function () {
+  return this._cache
+}
+
+LRUCache.prototype.dumpLru = function () {
+  return this._lruList
+}
+
+LRUCache.prototype.set = function (key, value) {
+  if (hOP(this._cache, key)) {
+    // dispose of the old one before overwriting
+    if (this._dispose) this._dispose(key, this._cache[key].value)
+    if (this._maxAge) this._cache[key].now = Date.now()
+    this._cache[key].value = value
+    this.get(key)
+    return true
+  }
+
+  var len = this._lengthCalculator(value)
+  var age = this._maxAge ? Date.now() : 0
+  var hit = new Entry(key, value, this._mru++, len, age)
+
+  // oversized objects fall out of cache automatically.
+  if (hit.length > this._max) {
+    if (this._dispose) this._dispose(key, value)
+    return false
+  }
+
+  this._length += hit.length
+  this._lruList[hit.lu] = this._cache[key] = hit
+  this._itemCount ++
+
+  if (this._length > this._max) trim(this)
+  return true
+}
+
+LRUCache.prototype.has = function (key) {
+  if (!hOP(this._cache, key)) return false
+  var hit = this._cache[key]
+  if (this._maxAge && (Date.now() - hit.now > this._maxAge)) {
+    return false
+  }
+  return true
+}
+
+LRUCache.prototype.get = function (key) {
+  return get(this, key, true)
+}
+
+LRUCache.prototype.peek = function (key) {
+  return get(this, key, false)
+}
+
+LRUCache.prototype.pop = function () {
+  var hit = this._lruList[this._lru]
+  del(this, hit)
+  return hit || null
+}
+
+LRUCache.prototype.del = function (key) {
+  del(this, this._cache[key])
+}
+
+function get (self, key, doUse) {
+  var hit = self._cache[key]
+  if (hit) {
+    if (self._maxAge && (Date.now() - hit.now > self._maxAge)) {
+      del(self, hit)
+      if (!self._allowStale) hit = undefined
+    } else {
+      if (doUse) use(self, hit)
+    }
+    if (hit) hit = hit.value
+  }
+  return hit
+}
+
+function use (self, hit) {
+  shiftLU(self, hit)
+  hit.lu = self._mru ++
+  self._lruList[hit.lu] = hit
+}
+
+function trim (self) {
+  while (self._lru < self._mru && self._length > self._max)
+    del(self, self._lruList[self._lru])
+}
+
+function shiftLU (self, hit) {
+  delete self._lruList[ hit.lu ]
+  while (self._lru < self._mru && !self._lruList[self._lru]) self._lru ++
+}
+
+function del (self, hit) {
+  if (hit) {
+    if (self._dispose) self._dispose(hit.key, hit.value)
+    self._length -= hit.length
+    self._itemCount --
+    delete self._cache[ hit.key ]
+    shiftLU(self, hit)
+  }
+}
+
+// classy, since V8 prefers predictable objects.
+function Entry (key, value, lu, length, now) {
+  this.key = key
+  this.value = value
+  this.lu = lu
+  this.length = length
+  this.now = now
+}
+
+})()
+
+},{}],26:[function(require,module,exports){
 (function (process){
 var defined = require('defined');
 var createDefaultStream = require('./lib/default_stream');
@@ -4503,7 +4730,7 @@ function createHarness (conf_) {
 }
 
 }).call(this,require('_process'))
-},{"./lib/default_stream":26,"./lib/results":27,"./lib/test":28,"_process":11,"defined":32,"through":36}],26:[function(require,module,exports){
+},{"./lib/default_stream":27,"./lib/results":28,"./lib/test":29,"_process":11,"defined":33,"through":37}],27:[function(require,module,exports){
 (function (process){
 var through = require('through');
 var fs = require('fs');
@@ -4538,7 +4765,7 @@ module.exports = function () {
 };
 
 }).call(this,require('_process'))
-},{"_process":11,"fs":2,"through":36}],27:[function(require,module,exports){
+},{"_process":11,"fs":2,"through":37}],28:[function(require,module,exports){
 (function (process){
 var EventEmitter = require('events').EventEmitter;
 var inherits = require('inherits');
@@ -4731,7 +4958,7 @@ function has (obj, prop) {
 }
 
 }).call(this,require('_process'))
-},{"_process":11,"events":7,"inherits":33,"object-inspect":34,"resumer":35,"through":36}],28:[function(require,module,exports){
+},{"_process":11,"events":7,"inherits":34,"object-inspect":35,"resumer":36,"through":37}],29:[function(require,module,exports){
 (function (process,__dirname){
 var Stream = require('stream');
 var deepEqual = require('deep-equal');
@@ -5197,7 +5424,7 @@ Test.skip = function (name_, _opts, _cb) {
 // vim: set softtabstop=4 shiftwidth=4:
 
 }).call(this,require('_process'),"/node_modules/tape/lib")
-},{"_process":11,"deep-equal":29,"defined":32,"events":7,"inherits":33,"path":10,"stream":23}],29:[function(require,module,exports){
+},{"_process":11,"deep-equal":30,"defined":33,"events":7,"inherits":34,"path":10,"stream":23}],30:[function(require,module,exports){
 var pSlice = Array.prototype.slice;
 var objectKeys = require('./lib/keys.js');
 var isArguments = require('./lib/is_arguments.js');
@@ -5293,7 +5520,7 @@ function objEquiv(a, b, opts) {
   return true;
 }
 
-},{"./lib/is_arguments.js":30,"./lib/keys.js":31}],30:[function(require,module,exports){
+},{"./lib/is_arguments.js":31,"./lib/keys.js":32}],31:[function(require,module,exports){
 var supportsArgumentsClass = (function(){
   return Object.prototype.toString.call(arguments)
 })() == '[object Arguments]';
@@ -5315,7 +5542,7 @@ function unsupported(object){
     false;
 };
 
-},{}],31:[function(require,module,exports){
+},{}],32:[function(require,module,exports){
 exports = module.exports = typeof Object.keys === 'function'
   ? Object.keys : shim;
 
@@ -5326,16 +5553,16 @@ function shim (obj) {
   return keys;
 }
 
-},{}],32:[function(require,module,exports){
+},{}],33:[function(require,module,exports){
 module.exports = function () {
     for (var i = 0; i < arguments.length; i++) {
         if (arguments[i] !== undefined) return arguments[i];
     }
 };
 
-},{}],33:[function(require,module,exports){
+},{}],34:[function(require,module,exports){
 module.exports=require(8)
-},{"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify/node_modules/inherits/inherits_browser.js":8}],34:[function(require,module,exports){
+},{"/Users/chinmay/Documents/Personal/Projects/webaudioloader/node_modules/browserify/node_modules/inherits/inherits_browser.js":8}],35:[function(require,module,exports){
 module.exports = function inspect_ (obj, opts, depth, seen) {
     if (!opts) opts = {};
     
@@ -5464,7 +5691,7 @@ function inspectString (str) {
     }
 }
 
-},{}],35:[function(require,module,exports){
+},{}],36:[function(require,module,exports){
 (function (process){
 var through = require('through');
 var nextTick = typeof setImmediate !== 'undefined'
@@ -5497,7 +5724,7 @@ module.exports = function (write, end) {
 };
 
 }).call(this,require('_process'))
-},{"_process":11,"through":36}],36:[function(require,module,exports){
+},{"_process":11,"through":37}],37:[function(require,module,exports){
 (function (process){
 var Stream = require('stream')
 
@@ -5609,7 +5836,7 @@ function through (write, end, opts) {
 
 
 }).call(this,require('_process'))
-},{"_process":11,"stream":23}],37:[function(require,module,exports){
+},{"_process":11,"stream":23}],38:[function(require,module,exports){
 "use strict";
 
 var test = require('tape');
@@ -5737,7 +5964,7 @@ test('WebAudioLoader Loading', function (t){
 
 test('WebAudioLoader Caching', function (t){
 	beforeEach();
-	t.plan(5);
+	t.plan(4);
 
 	var validURL = "https://dl.dropboxusercontent.com/u/77191118/sounds/Sin440Hz1s-Original.wav";
 	var validURL2 = "https://dl.dropboxusercontent.com/u/77191118/sounds/Sin440Hz1s-Original.mp3";
@@ -5747,19 +5974,18 @@ test('WebAudioLoader Caching', function (t){
 
 
 	wal.load(validURL, {onload: function(){
-		t.equals(window.webAudioLoader._cachedAudio.length, 1, "Loading should increase cache array length");
+		t.equals(window.webAudioLoader._cachedAudio.keys().length, 1, "Loading should increase cache array length");
 		wal.load(validURL, {onload: function(){
-			t.equals(window.webAudioLoader._cachedAudio.length, 1, "Reloading should not increase cache array length");
+			t.equals(window.webAudioLoader._cachedAudio.keys().length, 1, "Reloading should not increase cache array length");
 			wal.load(validURL2, {onload: function(){
-				t.equals(window.webAudioLoader._cachedAudio.length, 2, "Loading another should increase cache array length");
+				t.equals(window.webAudioLoader._cachedAudio.keys().length, 2, "Loading another should increase cache array length");
 				wal.maxCacheSize = 500;
 				wal.load(validUR3, {onload: function(){
-					t.equals(window.webAudioLoader._cachedAudio.length, 2, "Going over the max size should an item to be deleted from cache");
-					t.equals(window.webAudioLoader._cachedAudio[0].source, validURL2, "Going over the max size should cause the oldest item to be deleted from cache");
+					t.equals(window.webAudioLoader._cachedAudio.keys().length, 2, "Going over the max size should an item to be deleted from cache");
 				}});
 			}});
 		}});
 	}});
 });
 
-},{"../../":1,"tape":25}]},{},[37]);
+},{"../../":1,"tape":26}]},{},[38]);

@@ -1,66 +1,63 @@
-/*webaudioloader - v1.0.0 - Tue Dec 09 2014 17:36:55 GMT+0800 (SGT) */ 
+/*webaudioloader - v1.0.0 - Fri Dec 12 2014 13:15:38 GMT+0800 (SGT) */ 
 !function(e){if("object"==typeof exports&&"undefined"!=typeof module)module.exports=e();else if("function"==typeof define&&define.amd)define([],e);else{var o;"undefined"!=typeof window?o=window:"undefined"!=typeof global?o=global:"undefined"!=typeof self&&(o=self),o.webaudioloader=e()}}(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 "use strict";
 
 function WebAudioLoader (options){
 
+	if ( !( this instanceof WebAudioLoader ) ) {
+		throw new TypeError( "WebAudioLoader constructor cannot be called as a function." );
+	}
+
 	window.AudioContext = window.AudioContext || window.webkitAudioContext;
 
+	// Singleton using a global reference.
 	if (window.webAudioLoader){
 		return window.webAudioLoader;
 	}
 
+		// setup cache object
+	this._cachedAudio = null;
+
+	// Define default local properties
 	this.cache = true;
-	this.maxCacheSize = 1000;
 	this.onload = null;
 	this.onprogress = null;
+	Object.defineProperty(this,'maxCacheSize', {
+		enumerable: true,
+		configurable: false,
+		set : function (maxSize){
+			if (this._cachedAudio){
+				this._cachedAudio.max = maxSize;
+			}
+		},
+		get : function (){
+			return this._cachedAudio.max;
+		}
+	});
 
-	this.context = options.audioContext || new AudioContext();
-
+	// Options parsing.
+	options = options || {};
 	for (var opt in options){
 		if (this.hasOwnProperty(opt) && options[opt] !== undefined){
 			this[opt] = options[opt];
 		}
 	}
+	this.context = options.audioContext || new AudioContext();
 
-	this._cachedAudio = [];
-	this._cachedSize = 0;
+	// Setup Cache
+	var cacheOptions = {
+		max: options.maxCacheSize || 1000,
+		length: function(audioBuffer){
+			return (audioBuffer.length*audioBuffer.numberOfChannels*4)/1000;
+		}
+	};
+	this._cachedAudio = require('lru-cache')(cacheOptions);
 
+
+	// Resgiter as global
 	window.webAudioLoader = this;
 
-	this._cacheFlush = function(sizeToClear, sortAlgorithm){
-		if (typeof sortAlgorithm !== 'function'){
-			sortAlgorithm = function (a,b){
-				return a.timestamp - b.timestamp;
-			};
-		}
-		this._cachedAudio.sort(sortAlgorithm);
-
-		var freedBuffer = 0;
-		while (freedBuffer < sizeToClear){
-			var removedBuffer = this._cachedAudio.pop();
-			freedBuffer = freedBuffer + this._sizeOfBufferInKB(removedBuffer);
-		}
-	};
-
-	this._addToCache = function(source, audioBuffer){
-		var sizeOfBuffer = this._sizeOfBufferInKB(audioBuffer);
-		if (this._cachedSize + sizeOfBuffer >= this.maxCacheSize){
-			this._cacheFlushOldest(sizeOfBuffer);
-		}else{
-			this._cachedSize = this._cachedSize + sizeOfBuffer;
-			this._cachedAudio.push({
-				source : source,
-				buffer : audioBuffer,
-				timestamp : this.audioContext.currentTime
-			});
-		}
-	};
-
-	this._sizeOfBufferInKB = function(audioBuffer){
-		return (audioBuffer.length*audioBuffer.numberOfChannels*4)/1000;
-	};
-
+	// Helper functions
 	this._loadURLOrFile = function (URL, onprogress, onload){
 		var urlType = Object.prototype.toString.call( URL );
 		var request = null;
@@ -76,8 +73,14 @@ function WebAudioLoader (options){
 		}
 
 		request.onload = function () {
-			if (typeof onload === 'function'){
-				onload(null, request.response);
+			if (request.status === 200){
+				if (typeof onload === 'function'){
+					onload(null, request.response);
+				}
+			}else{
+				if (typeof onload === 'function'){
+					onload(new Error("Loading Error"), null);
+				}
 			}
 		};
 		request.onerror = function(){
@@ -93,7 +96,7 @@ function WebAudioLoader (options){
 			if (typeof this.onprogress === 'function'){
 				this.onprogress(event);
 			}
-		};
+		}.bind(this);
 
 		if (urlType === '[object String]'){
 			request.send();
@@ -109,71 +112,311 @@ WebAudioLoader.prototype.load = function (source, options){
 	var decode =  true;
 	var thisLoadCache = true;
 	var thisLoadOnload = options.onload || null;
-	var thisLoadOnprogress = options.onload || null;
-		// var startPoint = options.startPoint || 0;
-		// var endPoint = options.endPoint || 0;
+	var thisLoadOnprogress = options.onprogress || null;
+	// var startPoint = options.startPoint || 0;
+	// var endPoint = options.endPoint || 0;
 
-		if (options.cache !== null || options.cache !== undefined){
-			thisLoadCache = options.cache;
+
+	if (options.cache !== null && options.cache !== undefined){
+		thisLoadCache = options.cache;
+	}
+
+	if (options.decode !== null && options.decode !== undefined){
+		decode = options.decode;
+	}
+
+	var onLoadProxy = function (err,arraybuffer){
+		if(typeof thisLoadOnload === 'function'){
+			thisLoadOnload(err,arraybuffer);
 		}
-
-		if (options.decode !== null || options.decode !== undefined){
-			decode = options.decode;
+		if (typeof this.onload === 'function'){
+			this.onload(err,arraybuffer);
 		}
+	}.bind(this);
 
-		var onLoadProxy = function (err,arraybuffer){
-			if(typeof thisLoadOnload === 'function'){
-				thisLoadOnload(err,arraybuffer);
-			}
-			if (typeof this.onload === 'function'){
-				this.onload(err,arraybuffer);
-			}
-		}.bind(this);
+	if (this.cache && thisLoadCache){
+		var testCache = this._cachedAudio.get(source);
+		if (testCache){
+			onLoadProxy(null, testCache);
+			return;
+		}
+	}
 
-		if (this.cache && thisLoadCache){
-			var cacheSearch = this.cachedAudio.filter(function(thisCacheItem){
-				if (thisCacheItem.source === source){
-					return true;
+	this._loadURLOrFile(source, thisLoadOnprogress, function (err, arrayBuffer){
+		if(err || !decode){
+			onLoadProxy(err,arrayBuffer);
+		}else{
+			this.context.decodeAudioData(arrayBuffer, function(audioBuffer){
+				if (thisLoadCache && this.cache){
+					this._cachedAudio.set(source,audioBuffer);
 				}
-			});
-
-			if (cacheSearch.length > 0){
-				console.log("Cache Hit");
-				onLoadProxy(null, cacheSearch[0].buffer);
-			}
+				onLoadProxy(err,audioBuffer);
+			}.bind(this), function(){
+				onLoadProxy(new Error("Decoding Error"),null);
+			}.bind(this));
 		}
+	}.bind(this));
+};
 
-		this._loadURLOrFile(source, thisLoadOnprogress, function (err, arrayBuffer){
-			if(err || !decode){
-				onLoadProxy(err,arrayBuffer);
-			}else{
-				this.audioContext.decodeAudioData(arrayBuffer, function(audioBuffer){
-					if (thisLoadCache && this.cache){
-						this._addToCache(source,audioBuffer);
-					}
-					onLoadProxy(err,arrayBuffer);
-				}.bind(this), function(){
-					onLoadProxy(new Error("Decoding Error"),null);
-				}.bind(this));
-			}
-		}.bind(this));
-	};
+WebAudioLoader.prototype.flushCache = function (){
+	this._cache.reset();
+};
 
-	WebAudioLoader.prototype.flushCache = function (){
-		this._cachedAudio = [];
-		this._cachedSize = 0;
-	};
+module.exports = WebAudioLoader;
 
-	module.exports = WebAudioLoader;
+},{"lru-cache":2}],2:[function(require,module,exports){
+;(function () { // closure for web browsers
+
+if (typeof module === 'object' && module.exports) {
+  module.exports = LRUCache
+} else {
+  // just set the global for non-node platforms.
+  this.LRUCache = LRUCache
+}
+
+function hOP (obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key)
+}
+
+function naiveLength () { return 1 }
+
+function LRUCache (options) {
+  if (!(this instanceof LRUCache))
+    return new LRUCache(options)
+
+  if (typeof options === 'number')
+    options = { max: options }
+
+  if (!options)
+    options = {}
+
+  this._max = options.max
+  // Kind of weird to have a default max of Infinity, but oh well.
+  if (!this._max || !(typeof this._max === "number") || this._max <= 0 )
+    this._max = Infinity
+
+  this._lengthCalculator = options.length || naiveLength
+  if (typeof this._lengthCalculator !== "function")
+    this._lengthCalculator = naiveLength
+
+  this._allowStale = options.stale || false
+  this._maxAge = options.maxAge || null
+  this._dispose = options.dispose
+  this.reset()
+}
+
+// resize the cache when the max changes.
+Object.defineProperty(LRUCache.prototype, "max",
+  { set : function (mL) {
+      if (!mL || !(typeof mL === "number") || mL <= 0 ) mL = Infinity
+      this._max = mL
+      if (this._length > this._max) trim(this)
+    }
+  , get : function () { return this._max }
+  , enumerable : true
+  })
+
+// resize the cache when the lengthCalculator changes.
+Object.defineProperty(LRUCache.prototype, "lengthCalculator",
+  { set : function (lC) {
+      if (typeof lC !== "function") {
+        this._lengthCalculator = naiveLength
+        this._length = this._itemCount
+        for (var key in this._cache) {
+          this._cache[key].length = 1
+        }
+      } else {
+        this._lengthCalculator = lC
+        this._length = 0
+        for (var key in this._cache) {
+          this._cache[key].length = this._lengthCalculator(this._cache[key].value)
+          this._length += this._cache[key].length
+        }
+      }
+
+      if (this._length > this._max) trim(this)
+    }
+  , get : function () { return this._lengthCalculator }
+  , enumerable : true
+  })
+
+Object.defineProperty(LRUCache.prototype, "length",
+  { get : function () { return this._length }
+  , enumerable : true
+  })
 
 
-// var wal = new WebAudioLoader({cache : false, maxCacheSize : 1000, onload: function(){}, onprogress: function(){}, context : audioContext })
-// wal.onload = function(){};
-// wal.cache = false;
-// wal.onprogress = function(){};
-// wal.load('http://www.example.com/audio.mp3');
-// wal.load([object File]);
-// wal.load('http://www.example.com/audio.mp3', {decode: false, startPoint : 1, endPoint : 3, cache : false , onload: function(){}, onprogress: function(){}});
+Object.defineProperty(LRUCache.prototype, "itemCount",
+  { get : function () { return this._itemCount }
+  , enumerable : true
+  })
+
+LRUCache.prototype.forEach = function (fn, thisp) {
+  thisp = thisp || this
+  var i = 0;
+  for (var k = this._mru - 1; k >= 0 && i < this._itemCount; k--) if (this._lruList[k]) {
+    i++
+    var hit = this._lruList[k]
+    if (this._maxAge && (Date.now() - hit.now > this._maxAge)) {
+      del(this, hit)
+      if (!this._allowStale) hit = undefined
+    }
+    if (hit) {
+      fn.call(thisp, hit.value, hit.key, this)
+    }
+  }
+}
+
+LRUCache.prototype.keys = function () {
+  var keys = new Array(this._itemCount)
+  var i = 0
+  for (var k = this._mru - 1; k >= 0 && i < this._itemCount; k--) if (this._lruList[k]) {
+    var hit = this._lruList[k]
+    keys[i++] = hit.key
+  }
+  return keys
+}
+
+LRUCache.prototype.values = function () {
+  var values = new Array(this._itemCount)
+  var i = 0
+  for (var k = this._mru - 1; k >= 0 && i < this._itemCount; k--) if (this._lruList[k]) {
+    var hit = this._lruList[k]
+    values[i++] = hit.value
+  }
+  return values
+}
+
+LRUCache.prototype.reset = function () {
+  if (this._dispose && this._cache) {
+    for (var k in this._cache) {
+      this._dispose(k, this._cache[k].value)
+    }
+  }
+
+  this._cache = Object.create(null) // hash of items by key
+  this._lruList = Object.create(null) // list of items in order of use recency
+  this._mru = 0 // most recently used
+  this._lru = 0 // least recently used
+  this._length = 0 // number of items in the list
+  this._itemCount = 0
+}
+
+// Provided for debugging/dev purposes only. No promises whatsoever that
+// this API stays stable.
+LRUCache.prototype.dump = function () {
+  return this._cache
+}
+
+LRUCache.prototype.dumpLru = function () {
+  return this._lruList
+}
+
+LRUCache.prototype.set = function (key, value) {
+  if (hOP(this._cache, key)) {
+    // dispose of the old one before overwriting
+    if (this._dispose) this._dispose(key, this._cache[key].value)
+    if (this._maxAge) this._cache[key].now = Date.now()
+    this._cache[key].value = value
+    this.get(key)
+    return true
+  }
+
+  var len = this._lengthCalculator(value)
+  var age = this._maxAge ? Date.now() : 0
+  var hit = new Entry(key, value, this._mru++, len, age)
+
+  // oversized objects fall out of cache automatically.
+  if (hit.length > this._max) {
+    if (this._dispose) this._dispose(key, value)
+    return false
+  }
+
+  this._length += hit.length
+  this._lruList[hit.lu] = this._cache[key] = hit
+  this._itemCount ++
+
+  if (this._length > this._max) trim(this)
+  return true
+}
+
+LRUCache.prototype.has = function (key) {
+  if (!hOP(this._cache, key)) return false
+  var hit = this._cache[key]
+  if (this._maxAge && (Date.now() - hit.now > this._maxAge)) {
+    return false
+  }
+  return true
+}
+
+LRUCache.prototype.get = function (key) {
+  return get(this, key, true)
+}
+
+LRUCache.prototype.peek = function (key) {
+  return get(this, key, false)
+}
+
+LRUCache.prototype.pop = function () {
+  var hit = this._lruList[this._lru]
+  del(this, hit)
+  return hit || null
+}
+
+LRUCache.prototype.del = function (key) {
+  del(this, this._cache[key])
+}
+
+function get (self, key, doUse) {
+  var hit = self._cache[key]
+  if (hit) {
+    if (self._maxAge && (Date.now() - hit.now > self._maxAge)) {
+      del(self, hit)
+      if (!self._allowStale) hit = undefined
+    } else {
+      if (doUse) use(self, hit)
+    }
+    if (hit) hit = hit.value
+  }
+  return hit
+}
+
+function use (self, hit) {
+  shiftLU(self, hit)
+  hit.lu = self._mru ++
+  self._lruList[hit.lu] = hit
+}
+
+function trim (self) {
+  while (self._lru < self._mru && self._length > self._max)
+    del(self, self._lruList[self._lru])
+}
+
+function shiftLU (self, hit) {
+  delete self._lruList[ hit.lu ]
+  while (self._lru < self._mru && !self._lruList[self._lru]) self._lru ++
+}
+
+function del (self, hit) {
+  if (hit) {
+    if (self._dispose) self._dispose(hit.key, hit.value)
+    self._length -= hit.length
+    self._itemCount --
+    delete self._cache[ hit.key ]
+    shiftLU(self, hit)
+  }
+}
+
+// classy, since V8 prefers predictable objects.
+function Entry (key, value, lu, length, now) {
+  this.key = key
+  this.value = value
+  this.lu = lu
+  this.length = length
+  this.now = now
+}
+
+})()
 
 },{}]},{},[1])(1)
 });

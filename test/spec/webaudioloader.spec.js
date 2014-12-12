@@ -125,7 +125,7 @@ test('WebAudioLoader Loading', function (t){
 
 test('WebAudioLoader Caching', function (t){
 	beforeEach();
-	t.plan(5);
+	t.plan(4);
 
 	var validURL = "https://dl.dropboxusercontent.com/u/77191118/sounds/Sin440Hz1s-Original.wav";
 	var validURL2 = "https://dl.dropboxusercontent.com/u/77191118/sounds/Sin440Hz1s-Original.mp3";
@@ -135,15 +135,14 @@ test('WebAudioLoader Caching', function (t){
 
 
 	wal.load(validURL, {onload: function(){
-		t.equals(window.webAudioLoader._cachedAudio.length, 1, "Loading should increase cache array length");
+		t.equals(window.webAudioLoader._cachedAudio.keys().length, 1, "Loading should increase cache array length");
 		wal.load(validURL, {onload: function(){
-			t.equals(window.webAudioLoader._cachedAudio.length, 1, "Reloading should not increase cache array length");
+			t.equals(window.webAudioLoader._cachedAudio.keys().length, 1, "Reloading should not increase cache array length");
 			wal.load(validURL2, {onload: function(){
-				t.equals(window.webAudioLoader._cachedAudio.length, 2, "Loading another should increase cache array length");
+				t.equals(window.webAudioLoader._cachedAudio.keys().length, 2, "Loading another should increase cache array length");
 				wal.maxCacheSize = 500;
 				wal.load(validUR3, {onload: function(){
-					t.equals(window.webAudioLoader._cachedAudio.length, 2, "Going over the max size should an item to be deleted from cache");
-					t.equals(window.webAudioLoader._cachedAudio[0].source, validURL2, "Going over the max size should cause the oldest item to be deleted from cache");
+					t.equals(window.webAudioLoader._cachedAudio.keys().length, 2, "Going over the max size should an item to be deleted from cache");
 				}});
 			}});
 		}});

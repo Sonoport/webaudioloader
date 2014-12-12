@@ -2,7 +2,7 @@
   "name": "webaudioloader",
   "version": "1.0.0",
   "description": "Caching Loader (with optional decode) audio files to be used with WebAudio",
-  "main": "index.js",
+  "main": "lib/webaudioloader.js",
   "scripts": {
     "test": "test"
   },
@@ -37,5 +37,8 @@
     "jshint-stylish": "^1.0.0",
     "tape": "^3.0.3",
     "vinyl-transform": "^1.0.0"
+  },
+  "dependencies": {
+    "lru-cache": "^2.5.0"
   }
 }
