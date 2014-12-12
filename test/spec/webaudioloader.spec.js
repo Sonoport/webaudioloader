@@ -1,7 +1,7 @@
 "use strict";
 
 var test = require('tape');
-var WebAudioLoader = require('../../');
+var WebAudioLoader = require('../../lib/webaudioloader.js');
 
 var beforeEach = function (){
 	// reset global;
@@ -132,12 +132,19 @@ test('WebAudioLoader Caching', function (t){
 	var validUR3 = "https://dl.dropboxusercontent.com/u/77191118/sounds/sine_marked.mp3";
 	//var hugeBuffer = "https://dl.dropboxusercontent.com/u/77191118/sounds/Sin440Hz1s-Marked.mp3";
 	var wal = new WebAudioLoader();
+	var xhrOpen = XMLHttpRequest.prototype.open;
+	var xhrOpenCallCount = 0;
+	XMLHttpRequest.prototype.open = function (){
+		xhrOpenCallCount++;
+		xhrOpen.apply(this,arguments);
+	};
 
 
 	wal.load(validURL, {onload: function(){
 		t.equals(window.webAudioLoader._cachedAudio.keys().length, 1, "Loading should increase cache array length");
+		xhrOpenCallCount = 0;
 		wal.load(validURL, {onload: function(){
-			t.equals(window.webAudioLoader._cachedAudio.keys().length, 1, "Reloading should not increase cache array length");
+			t.equals(xhrOpenCallCount, 0, "Reloading should not cause an XHR Call");
 			wal.load(validURL2, {onload: function(){
 				t.equals(window.webAudioLoader._cachedAudio.keys().length, 2, "Loading another should increase cache array length");
 				wal.maxCacheSize = 500;

@@ -1,6 +1,10 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 "use strict";
 
+/*
+	constructor
+	var wal = new WebAudioLoader({cache : false, maxCacheSize : 1000, onload: function(){}, onprogress: function(){}, context : audioContext })
+ */
 function WebAudioLoader (options){
 
 	if ( !( this instanceof WebAudioLoader ) ) {
@@ -105,7 +109,12 @@ function WebAudioLoader (options){
 
 	};
 }
-
+/*
+	load method.
+	wal.load('http://www.example.com/audio.mp3');
+	wal.load([object File]);
+	wal.load('http://www.example.com/audio.mp3', {decode: false,cache : false , onload: function(){}, onprogress: function(){}});
+ */
 WebAudioLoader.prototype.load = function (source, options){
 
 	var decode =  true;
@@ -118,6 +127,8 @@ WebAudioLoader.prototype.load = function (source, options){
 
 	if (options.cache !== null && options.cache !== undefined){
 		thisLoadCache = options.cache;
+	}else{
+		thisLoadCache = this.cache;
 	}
 
 	if (options.decode !== null && options.decode !== undefined){
@@ -146,7 +157,7 @@ WebAudioLoader.prototype.load = function (source, options){
 			onLoadProxy(err,arrayBuffer);
 		}else{
 			this.context.decodeAudioData(arrayBuffer, function(audioBuffer){
-				if (thisLoadCache && this.cache){
+				if (thisLoadCache){
 					this._cachedAudio.set(source,audioBuffer);
 				}
 				onLoadProxy(err,audioBuffer);
@@ -157,8 +168,12 @@ WebAudioLoader.prototype.load = function (source, options){
 	}.bind(this));
 };
 
+/*
+	flushCache method
+	Resets and empties the cache.
+ */
 WebAudioLoader.prototype.flushCache = function (){
-	this._cache.reset();
+	this._cachedAudio.reset();
 };
 
 module.exports = WebAudioLoader;
@@ -5840,7 +5855,7 @@ function through (write, end, opts) {
 "use strict";
 
 var test = require('tape');
-var WebAudioLoader = require('../../');
+var WebAudioLoader = require('../../lib/webaudioloader.js');
 
 var beforeEach = function (){
 	// reset global;
@@ -5971,12 +5986,19 @@ test('WebAudioLoader Caching', function (t){
 	var validUR3 = "https://dl.dropboxusercontent.com/u/77191118/sounds/sine_marked.mp3";
 	//var hugeBuffer = "https://dl.dropboxusercontent.com/u/77191118/sounds/Sin440Hz1s-Marked.mp3";
 	var wal = new WebAudioLoader();
+	var xhrOpen = XMLHttpRequest.prototype.open;
+	var xhrOpenCallCount = 0;
+	XMLHttpRequest.prototype.open = function (){
+		xhrOpenCallCount++;
+		xhrOpen.apply(this,arguments);
+	};
 
 
 	wal.load(validURL, {onload: function(){
 		t.equals(window.webAudioLoader._cachedAudio.keys().length, 1, "Loading should increase cache array length");
+		xhrOpenCallCount = 0;
 		wal.load(validURL, {onload: function(){
-			t.equals(window.webAudioLoader._cachedAudio.keys().length, 1, "Reloading should not increase cache array length");
+			t.equals(xhrOpenCallCount, 0, "Reloading should not cause an XHR Call");
 			wal.load(validURL2, {onload: function(){
 				t.equals(window.webAudioLoader._cachedAudio.keys().length, 2, "Loading another should increase cache array length");
 				wal.maxCacheSize = 500;
@@ -5988,4 +6010,4 @@ test('WebAudioLoader Caching', function (t){
 	}});
 });
 
-},{"../../":1,"tape":26}]},{},[38]);
+},{"../../lib/webaudioloader.js":1,"tape":26}]},{},[38]);
