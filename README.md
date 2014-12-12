@@ -5,7 +5,7 @@ Caching Loader and Decoder for audio files to be used with Web Audio.
 
 ## Usage:
 
-```
+```js
 var WebAudioLoader = require("webaudioloader");
 
 var audioContext = new AudioContext();
