@@ -106,7 +106,7 @@ eg : `var wal = new WebAudioLoader(options);`
 		- `decode` : boolean - toggle if the audio file should be decoded. If decoded the `onload` callback returns an `AudioBuffer`, else it returns an `ArrayBuffer`.
 		- `cache` : boolean - if the audio from this specific load call should be  cached. Overrides the global property.
 		- `onload` : Function - callback when this specific load operation is complete. The callback has node style return arguments `callback(err, buffer)`.
-	- `onprogress` : Function - callback when this specific load operation is in progress. The callback return a progress Event.
+		- `onprogress` : Function - callback when this specific load operation is in progress. The callback return a progress Event.
 
 - `flushCache` : Resets the internal cache of the loader.
 
