@@ -1,5 +1,5 @@
-/*webaudioloader - v1.0.0 - Tue Mar 10 2015 13:08:21 GMT+0800 (SGT) */ 
-!function(e){if("object"==typeof exports&&"undefined"!=typeof module)module.exports=e();else if("function"==typeof define&&define.amd)define([],e);else{var o;"undefined"!=typeof window?o=window:"undefined"!=typeof global?o=global:"undefined"!=typeof self&&(o=self),o.webaudioloader=e()}}(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+/*webaudioloader - v1.0.3 - Mon Jul 13 2015 10:07:27 GMT+0800 (SGT) */ 
+(function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.webaudioloader = f()}})(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 "use strict";
 
 /*
@@ -77,9 +77,13 @@ function WebAudioLoader (options){
 		}
 
 		request.onload = function () {
-			if (request.status === 200){
+			if (urlType === '[object String]' && request.status === 200){
 				if (typeof onload === 'function'){
 					onload(null, request.response);
+				}
+			}else if (urlType === '[object File]' || urlType === '[object Blob]'){
+				if (typeof onload === 'function'){
+						onload(null, request.result);
 				}
 			}else{
 				if (typeof onload === 'function'){
@@ -120,6 +124,10 @@ WebAudioLoader.prototype.load = function (source, options){
 
 	var decode =  true;
 	var thisLoadCache = true;
+
+	if (!options) {
+		options = {};
+	}
 	var thisLoadOnload = options.onload || null;
 	var thisLoadOnprogress = options.onprogress || null;
 	// var startPoint = options.startPoint || 0;
@@ -136,12 +144,12 @@ WebAudioLoader.prototype.load = function (source, options){
 		decode = options.decode;
 	}
 
-	var onLoadProxy = function (err,arraybuffer){
+	var onLoadProxy = function (err,audioBuffer){
 		if(typeof thisLoadOnload === 'function'){
-			thisLoadOnload(err,arraybuffer);
+			thisLoadOnload(err,audioBuffer);
 		}
 		if (typeof this.onload === 'function'){
-			this.onload(err,arraybuffer);
+			this.onload(err,audioBuffer);
 		}
 	}.bind(this);
 
@@ -268,11 +276,13 @@ Object.defineProperty(LRUCache.prototype, "itemCount",
 
 LRUCache.prototype.forEach = function (fn, thisp) {
   thisp = thisp || this
-  var i = 0;
-  for (var k = this._mru - 1; k >= 0 && i < this._itemCount; k--) if (this._lruList[k]) {
+  var i = 0
+  var itemCount = this._itemCount
+
+  for (var k = this._mru - 1; k >= 0 && i < itemCount; k--) if (this._lruList[k]) {
     i++
     var hit = this._lruList[k]
-    if (this._maxAge && (Date.now() - hit.now > this._maxAge)) {
+    if (isStale(this, hit)) {
       del(this, hit)
       if (!this._allowStale) hit = undefined
     }
@@ -327,19 +337,24 @@ LRUCache.prototype.dumpLru = function () {
   return this._lruList
 }
 
-LRUCache.prototype.set = function (key, value) {
+LRUCache.prototype.set = function (key, value, maxAge) {
+  maxAge = maxAge || this._maxAge
+  var now = maxAge ? Date.now() : 0
+
   if (hOP(this._cache, key)) {
     // dispose of the old one before overwriting
-    if (this._dispose) this._dispose(key, this._cache[key].value)
-    if (this._maxAge) this._cache[key].now = Date.now()
+    if (this._dispose)
+      this._dispose(key, this._cache[key].value)
+
+    this._cache[key].now = now
+    this._cache[key].maxAge = maxAge
     this._cache[key].value = value
     this.get(key)
     return true
   }
 
   var len = this._lengthCalculator(value)
-  var age = this._maxAge ? Date.now() : 0
-  var hit = new Entry(key, value, this._mru++, len, age)
+  var hit = new Entry(key, value, this._mru++, len, now, maxAge)
 
   // oversized objects fall out of cache automatically.
   if (hit.length > this._max) {
@@ -351,14 +366,16 @@ LRUCache.prototype.set = function (key, value) {
   this._lruList[hit.lu] = this._cache[key] = hit
   this._itemCount ++
 
-  if (this._length > this._max) trim(this)
+  if (this._length > this._max)
+    trim(this)
+
   return true
 }
 
 LRUCache.prototype.has = function (key) {
   if (!hOP(this._cache, key)) return false
   var hit = this._cache[key]
-  if (this._maxAge && (Date.now() - hit.now > this._maxAge)) {
+  if (isStale(this, hit)) {
     return false
   }
   return true
@@ -385,7 +402,7 @@ LRUCache.prototype.del = function (key) {
 function get (self, key, doUse) {
   var hit = self._cache[key]
   if (hit) {
-    if (self._maxAge && (Date.now() - hit.now > self._maxAge)) {
+    if (isStale(self, hit)) {
       del(self, hit)
       if (!self._allowStale) hit = undefined
     } else {
@@ -394,6 +411,18 @@ function get (self, key, doUse) {
     if (hit) hit = hit.value
   }
   return hit
+}
+
+function isStale(self, hit) {
+  if (!hit || (!hit.maxAge && !self._maxAge)) return false
+  var stale = false;
+  var diff = Date.now() - hit.now
+  if (hit.maxAge) {
+    stale = diff > hit.maxAge
+  } else {
+    stale = self._maxAge && (diff > self._maxAge)
+  }
+  return stale;
 }
 
 function use (self, hit) {
@@ -423,12 +452,13 @@ function del (self, hit) {
 }
 
 // classy, since V8 prefers predictable objects.
-function Entry (key, value, lu, length, now) {
+function Entry (key, value, lu, length, now, maxAge) {
   this.key = key
   this.value = value
   this.lu = lu
   this.length = length
   this.now = now
+  if (maxAge) this.maxAge = maxAge
 }
 
 })()

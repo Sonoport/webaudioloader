@@ -13,6 +13,7 @@ var source = require('vinyl-source-stream');
 
 var paths = {
 	jssrc : './lib/*.js',
+  jsentry: './lib/webaudioloader.js',
   test : './test/',
   dist : './dist',
   testspecs : './test/spec/webaudioloader.spec.js'
@@ -31,13 +32,14 @@ gulp.task('jshint', function(){
 
 gulp.task('browserify', ['jshint'], function () {
   var b = browserify({
-    entries: paths.jssrc,
+    entries: paths.jsentry,
     standalone: pkg.name
   });
 
   return b.bundle()
     .pipe(source(paths.jssrc))
     .pipe(header(banner, {pkg: pkg}))
+    .pipe(rename('webaudioloader.js'))
     .pipe(gulp.dest(paths.dist));
 });
 
