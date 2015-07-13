@@ -9,13 +9,13 @@ var uglify = require('gulp-uglify');
 var header = require('gulp-header');
 var webserver = require('gulp-webserver');
 var browserify = require('browserify');
-var transform = require('vinyl-transform');
+var source = require('vinyl-source-stream');
 
 var paths = {
 	jssrc : './lib/*.js',
   test : './test/',
   dist : './dist',
-  testspecs : './test/spec/*.js'
+  testspecs : './test/spec/webaudioloader.spec.js'
 }
 
 var banner= '/*<%= pkg.name %> - v<%= pkg.version %> - ' +
@@ -30,13 +30,13 @@ gulp.task('jshint', function(){
 });
 
 gulp.task('browserify', ['jshint'], function () {
-  var browserified = transform(function(filename) {
-    var b = browserify(filename, {standalone: pkg.name});
-    return b.bundle();
+  var b = browserify({
+    entries: paths.jssrc,
+    standalone: pkg.name
   });
 
-  return gulp.src([paths.jssrc])
-    .pipe(browserified)
+  return b.bundle()
+    .pipe(source(paths.jssrc))
     .pipe(header(banner, {pkg: pkg}))
     .pipe(gulp.dest(paths.dist));
 });
@@ -59,13 +59,13 @@ gulp.task('jshint:test', function(){
 
 gulp.task('browserify:test',['jshint:test'], function () {
 
-  var browserified = transform(function(filename) {
-    var b = browserify(filename);
-    return b.bundle();
+  var b = browserify({
+    entries: paths.testspecs,
+    debug: true
   });
 
-  return gulp.src([paths.testspecs])
-    .pipe(browserified)
+  return b.bundle()
+    .pipe(source(paths.testspecs))
     .pipe(rename('test.js'))
     .pipe(gulp.dest(paths.test));
 });
